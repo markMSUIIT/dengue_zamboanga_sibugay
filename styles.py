@@ -30,10 +30,24 @@ SHARED_CSS = """
         font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
     }
     
-    /* Hide Streamlit branding */
+    /* Hide Streamlit branding but keep sidebar toggle */
     #MainMenu {visibility: hidden;}
     footer {visibility: hidden;}
-    header {visibility: hidden;}
+    
+    /* Keep header visible for sidebar toggle button */
+    header[data-testid="stHeader"] {
+        background: transparent;
+    }
+    
+    /* Ensure sidebar collapse button is always visible */
+    button[kind="header"] {
+        visibility: visible !important;
+    }
+    
+    [data-testid="collapsedControl"] {
+        display: flex !important;
+        visibility: visible !important;
+    }
     
     /* Main container */
     .main .block-container {
