@@ -361,18 +361,37 @@ def predict_with_model(results, test_data, model_type='nb'):
                 else:
                     # No exog variables - just predict based on fitted model
                     predictions = results.predict()
-                    # Extend to test data length if needed
-                    if len(predictions) < len(test_data):
+                    # Trim or extend to test data length if needed
+                    if len(predictions) > len(test_data):
+                        # Take the last N predictions matching test data length
+                        predictions = predictions[-len(test_data):]
+                    elif len(predictions) < len(test_data):
                         predictions = np.tile(predictions.mean(), len(test_data))
             except Exception as e:
                 print(f"Markov prediction error: {str(e)[:100]}")
                 predictions = results.predict()
+                # Ensure correct length
+                if len(predictions) > len(test_data):
+                    predictions = predictions[-len(test_data):]
+                elif len(predictions) < len(test_data):
+                    predictions = np.tile(predictions.mean(), len(test_data))
         else:
             X_test = test_data[['time_index', 'lag1', 'rolling_mean_4']].values.astype(float)
             X_test = sm.add_constant(X_test, has_constant='add')
             predictions = results.predict(X_test)
-        return np.array(predictions).flatten()
-    except:
+        
+        # Final safety check: ensure predictions match test_data length
+        predictions = np.array(predictions).flatten()
+        if len(predictions) != len(test_data):
+            print(f"Warning: Prediction length mismatch for {model_type}. Expected {len(test_data)}, got {len(predictions)}")
+            if len(predictions) > len(test_data):
+                predictions = predictions[-len(test_data):]
+            else:
+                predictions = np.tile(predictions.mean() if len(predictions) > 0 else 0, len(test_data))
+        
+        return predictions
+    except Exception as e:
+        print(f"Prediction error for {model_type}: {str(e)[:100]}")
         return None
 
 def calculate_metrics(actual, predicted):
