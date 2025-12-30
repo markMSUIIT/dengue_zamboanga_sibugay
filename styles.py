@@ -53,7 +53,9 @@ SHARED_CSS = """
     .main .block-container {
         padding-top: 2rem;
         padding-bottom: 2rem;
-        max-width: 1200px;
+        max-width: 95%;
+        padding-left: 3rem;
+        padding-right: 3rem;
     }
     
     /* Modern Header */
