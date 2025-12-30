@@ -62,7 +62,7 @@ st.markdown("""
     .pred-label { font-size: 1rem; opacity: 0.9; margin-top: 0.5rem; }
     .pred-sublabel { font-size: 0.85rem; opacity: 0.8; margin-top: 0.25rem; }
     .pred-badge { display: inline-block; background: rgba(255,255,255,0.2); padding: 0.25rem 0.75rem; border-radius: 20px; font-size: 0.75rem; font-weight: 600; margin-top: 0.75rem; }
-    .perf-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 0.75rem; margin: 1rem 0; }
+    .perf-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem; margin: 1rem 0; }
     .perf-item { background: #F9FAFB; padding: 1rem; border-radius: 8px; text-align: center; border: 1px solid #E5E7EB; }
     .perf-item .val { font-size: 1.25rem; font-weight: 700; color: #1F2937; }
     .perf-item .lbl { font-size: 0.7rem; color: #6B7280; font-weight: 500; margin-top: 0.25rem; }
@@ -395,29 +395,25 @@ def predict_with_model(results, test_data, model_type='nb'):
         return None
 
 def calculate_metrics(actual, predicted):
-    """Calculate performance metrics"""
+    """Calculate performance metrics: MAE, RMSE, MASE"""
     actual = np.array(actual).flatten().astype(float)
     predicted = np.array(predicted).flatten().astype(float)
     
-    mse = np.mean((actual - predicted) ** 2)
-    rmse = np.sqrt(mse)
+    rmse = np.sqrt(np.mean((actual - predicted) ** 2))
     mae = np.mean(np.abs(actual - predicted))
     
     naive_errors = np.abs(np.diff(actual))
     mase = mae / np.mean(naive_errors) if len(naive_errors) > 0 and np.mean(naive_errors) > 0 else np.nan
     
-    tolerance = 0.2
-    within_tolerance = np.abs(actual - predicted) <= (tolerance * np.maximum(actual, 1))
-    accuracy = np.mean(within_tolerance) * 100
-    
-    return {'MSE': mse, 'RMSE': rmse, 'MAE': mae, 'MASE': mase, 'Accuracy': accuracy}
+    return {'MAE': mae, 'RMSE': rmse, 'MASE': mase}
 
 def calculate_aic_bic(results, n_obs, model_type='nb'):
     """
-    Calculate AIC and BIC for model comparison
+    Calculate AIC, BIC, and Log-likelihood/Deviance for model comparison
     
     AIC = 2k - 2ln(L)
     BIC = k*ln(n) - 2ln(L)
+    Deviance = -2*ln(L)
     
     where:
     - k = number of parameters
@@ -429,6 +425,7 @@ def calculate_aic_bic(results, n_obs, model_type='nb'):
             # Model already has AIC/BIC computed
             aic = float(results.aic)
             bic = float(results.bic)
+            log_likelihood = float(results.llf) if hasattr(results, 'llf') else np.nan
         else:
             # Calculate manually
             k = len(results.params)  # number of parameters
@@ -437,9 +434,11 @@ def calculate_aic_bic(results, n_obs, model_type='nb'):
             aic = 2 * k - 2 * log_likelihood
             bic = k * np.log(n_obs) - 2 * log_likelihood
         
-        return {'AIC': aic, 'BIC': bic}
+        deviance = -2 * log_likelihood if not np.isnan(log_likelihood) else np.nan
+        
+        return {'AIC': aic, 'BIC': bic, 'Log-likelihood': log_likelihood, 'Deviance': deviance}
     except Exception as e:
-        return {'AIC': np.nan, 'BIC': np.nan}
+        return {'AIC': np.nan, 'BIC': np.nan, 'Log-likelihood': np.nan, 'Deviance': np.nan}
 
 def predict_future(results, last_data, weeks_ahead=4, model_type='nb'):
     """Predict future cases"""
@@ -929,11 +928,9 @@ def main():
                 nb_metrics = calculate_metrics(test_data['cases'].values, nb_test_pred)
                 st.markdown(f"""
                 <div class="perf-grid">
-                    <div class="perf-item"><div class="val">{nb_metrics['MSE']:.2f}</div><div class="lbl">MSE</div></div>
-                    <div class="perf-item"><div class="val">{nb_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
                     <div class="perf-item"><div class="val">{nb_metrics['MAE']:.2f}</div><div class="lbl">MAE</div></div>
+                    <div class="perf-item"><div class="val">{nb_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
                     <div class="perf-item"><div class="val">{nb_metrics['MASE']:.2f}</div><div class="lbl">MASE</div></div>
-                    <div class="perf-item"><div class="val">{nb_metrics['Accuracy']:.1f}%</div><div class="lbl">Accuracy</div></div>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -947,11 +944,9 @@ def main():
                 zinb_metrics = calculate_metrics(test_data['cases'].values, zinb_test_pred)
                 st.markdown(f"""
                 <div class="perf-grid">
-                    <div class="perf-item"><div class="val">{zinb_metrics['MSE']:.2f}</div><div class="lbl">MSE</div></div>
-                    <div class="perf-item"><div class="val">{zinb_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
                     <div class="perf-item"><div class="val">{zinb_metrics['MAE']:.2f}</div><div class="lbl">MAE</div></div>
+                    <div class="perf-item"><div class="val">{zinb_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
                     <div class="perf-item"><div class="val">{zinb_metrics['MASE']:.2f}</div><div class="lbl">MASE</div></div>
-                    <div class="perf-item"><div class="val">{zinb_metrics['Accuracy']:.1f}%</div><div class="lbl">Accuracy</div></div>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -965,11 +960,9 @@ def main():
                 markov_metrics = calculate_metrics(test_data['cases'].values, markov_test_pred)
                 st.markdown(f"""
                 <div class="perf-grid">
-                    <div class="perf-item"><div class="val">{markov_metrics['MSE']:.2f}</div><div class="lbl">MSE</div></div>
-                    <div class="perf-item"><div class="val">{markov_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
                     <div class="perf-item"><div class="val">{markov_metrics['MAE']:.2f}</div><div class="lbl">MAE</div></div>
+                    <div class="perf-item"><div class="val">{markov_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
                     <div class="perf-item"><div class="val">{markov_metrics['MASE']:.2f}</div><div class="lbl">MASE</div></div>
-                    <div class="perf-item"><div class="val">{markov_metrics['Accuracy']:.1f}%</div><div class="lbl">Accuracy</div></div>
                 </div>
                 """, unsafe_allow_html=True)
         else:
@@ -980,9 +973,8 @@ def main():
     
     st.markdown("""
     <div class="info-box">
-        <strong>AIC (Akaike Information Criterion)</strong> and <strong>BIC (Bayesian Information Criterion)</strong> 
-        assess model fit while penalizing complexity. <strong>Lower values indicate better models.</strong>
-        BIC penalizes model complexity more heavily than AIC.
+        <strong>Model Selection Criteria:</strong> AIC, BIC, Log-likelihood, and Deviance assess model fit.
+        <strong>Lower AIC/BIC/Deviance and higher Log-likelihood indicate better models.</strong>
     </div>
     """, unsafe_allow_html=True)
     
@@ -996,6 +988,8 @@ def main():
             'Model': 'Negative Binomial (NB)',
             'AIC': round(nb_aic_bic['AIC'], 2),
             'BIC': round(nb_aic_bic['BIC'], 2),
+            'Log-likelihood': round(nb_aic_bic['Log-likelihood'], 2),
+            'Deviance': round(nb_aic_bic['Deviance'], 2),
             'Parameters': len(nb_train_results.params)
         })
     
@@ -1005,6 +999,8 @@ def main():
             'Model': 'Zero-Inflated NB (ZINB)',
             'AIC': round(zinb_aic_bic['AIC'], 2),
             'BIC': round(zinb_aic_bic['BIC'], 2),
+            'Log-likelihood': round(zinb_aic_bic['Log-likelihood'], 2),
+            'Deviance': round(zinb_aic_bic['Deviance'], 2),
             'Parameters': len(zinb_train_results.params)
         })
     
@@ -1014,6 +1010,8 @@ def main():
             'Model': 'Markov-Switching NB',
             'AIC': round(markov_aic_bic['AIC'], 2),
             'BIC': round(markov_aic_bic['BIC'], 2),
+            'Log-likelihood': round(markov_aic_bic['Log-likelihood'], 2),
+            'Deviance': round(markov_aic_bic['Deviance'], 2),
             'Parameters': len(markov_train_results.params)
         })
     
@@ -1351,6 +1349,11 @@ def main():
         **Interpretation**: Lower BIC values indicate better model fit. BIC penalizes model complexity more 
         heavily than AIC, preferring simpler models.
         
+        #### Log-likelihood and Deviance
+        
+        - **Log-likelihood**: $\\ln(L)$ - Higher values indicate better fit
+        - **Deviance**: $D = -2\\ln(L)$ - Lower values indicate better fit (goodness-of-fit measure)
+        
         #### Model Selection Guidelines
         
         - **AIC**: Useful when prediction accuracy is the primary goal
@@ -1358,6 +1361,29 @@ def main():
         - **ΔIC > 10**: Substantial evidence for the better model
         - **ΔIC = 4-7**: Considerably less support for the model with higher IC
         - **ΔIC < 2**: Models are essentially equivalent
+        
+        ### Prediction Error Metrics
+        
+        #### Mean Absolute Error (MAE)
+        
+        $$MAE = \\frac{1}{n}\\sum_{i=1}^{n}|y_i - \\hat{y}_i|$$
+        
+        Average absolute difference between predicted and actual values. Lower is better.
+        
+        #### Root Mean Squared Error (RMSE)
+        
+        $$RMSE = \\sqrt{\\frac{1}{n}\\sum_{i=1}^{n}(y_i - \\hat{y}_i)^2}$$
+        
+        Square root of average squared errors. Penalizes larger errors more heavily. Lower is better.
+        
+        #### Mean Absolute Scaled Error (MASE)
+        
+        $$MASE = \\frac{MAE}{MAE_{naive}}$$
+        
+        where $MAE_{naive}$ is the MAE of a naive forecasting method (using previous value).
+        - **MASE < 1**: Model performs better than naive forecast
+        - **MASE = 1**: Model performs as well as naive forecast
+        - **MASE > 1**: Model performs worse than naive forecast
         
         ### Statistical Significance
         
