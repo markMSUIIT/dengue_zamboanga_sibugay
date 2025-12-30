@@ -450,6 +450,281 @@ SHARED_CSS = """
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
         color: white;
     }
+    
+    /* ===== RESPONSIVE DESIGN ===== */
+    
+    /* Large Desktop (1920px+) */
+    @media (min-width: 1920px) {
+        .main .block-container {
+            max-width: 90%;
+            padding-left: 4rem;
+            padding-right: 4rem;
+        }
+        
+        .app-header h1 {
+            font-size: 2rem;
+        }
+        
+        .metric-card .value {
+            font-size: 2.5rem;
+        }
+    }
+    
+    /* Desktop (1200px - 1919px) */
+    @media (min-width: 1200px) and (max-width: 1919px) {
+        .main .block-container {
+            max-width: 95%;
+            padding-left: 3rem;
+            padding-right: 3rem;
+        }
+    }
+    
+    /* Tablet Landscape (992px - 1199px) */
+    @media (max-width: 1199px) {
+        .main .block-container {
+            max-width: 100%;
+            padding-left: 2rem;
+            padding-right: 2rem;
+        }
+        
+        .app-header {
+            padding: 1.25rem 1.5rem;
+        }
+        
+        .app-header h1 {
+            font-size: 1.5rem;
+        }
+        
+        .metric-card {
+            padding: 1.25rem;
+        }
+        
+        .metric-card .value {
+            font-size: 1.75rem;
+        }
+    }
+    
+    /* Tablet Portrait (768px - 991px) */
+    @media (max-width: 991px) {
+        .main .block-container {
+            padding-left: 1.5rem;
+            padding-right: 1.5rem;
+            padding-top: 1.5rem;
+        }
+        
+        .app-header {
+            padding: 1rem 1.25rem;
+            border-radius: 12px;
+        }
+        
+        .app-header h1 {
+            font-size: 1.35rem;
+        }
+        
+        .app-header p {
+            font-size: 0.85rem;
+        }
+        
+        .section-header {
+            font-size: 1.1rem;
+            padding: 0.75rem 0;
+        }
+        
+        .metric-card {
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .metric-card .value {
+            font-size: 1.5rem;
+        }
+        
+        .metric-card .label {
+            font-size: 0.8rem;
+        }
+        
+        /* Stack columns on tablet */
+        [data-testid="column"] {
+            width: 100% !important;
+            flex: 100% !important;
+            max-width: 100% !important;
+        }
+        
+        .sidebar-header h2 {
+            font-size: 1rem;
+        }
+    }
+    
+    /* Mobile (576px - 767px) */
+    @media (max-width: 767px) {
+        .main .block-container {
+            padding-left: 1rem;
+            padding-right: 1rem;
+            padding-top: 1rem;
+            padding-bottom: 1rem;
+        }
+        
+        .app-header {
+            padding: 0.875rem 1rem;
+            border-radius: 10px;
+            margin-bottom: 1.25rem;
+        }
+        
+        .app-header h1 {
+            font-size: 1.15rem;
+            line-height: 1.3;
+        }
+        
+        .app-header p {
+            font-size: 0.75rem;
+            margin-top: 0.35rem;
+        }
+        
+        .header-badge {
+            font-size: 0.65rem;
+            padding: 0.2rem 0.6rem;
+            margin-top: 0.5rem;
+        }
+        
+        .section-header {
+            font-size: 1rem;
+            padding: 0.5rem 0;
+            margin-top: 1rem;
+            margin-bottom: 0.75rem;
+        }
+        
+        .metric-card {
+            padding: 0.875rem;
+            margin-bottom: 0.5rem;
+            border-radius: 10px;
+        }
+        
+        .metric-card .value {
+            font-size: 1.35rem;
+        }
+        
+        .metric-card .label {
+            font-size: 0.75rem;
+            margin-top: 0.25rem;
+        }
+        
+        .metric-card .delta {
+            font-size: 0.7rem;
+            margin-top: 0.25rem;
+        }
+        
+        .info-box, .warning-box, .success-box {
+            padding: 0.75rem;
+            font-size: 0.8rem;
+            border-radius: 8px;
+            margin-bottom: 0.75rem;
+        }
+        
+        /* Sidebar adjustments */
+        [data-testid="stSidebar"] {
+            width: 280px !important;
+        }
+        
+        .sidebar-header {
+            padding: 0.875rem;
+            margin-bottom: 1rem;
+        }
+        
+        .sidebar-header h2 {
+            font-size: 0.95rem;
+        }
+        
+        .sidebar-header p {
+            font-size: 0.7rem;
+        }
+        
+        /* Footer adjustments */
+        .app-footer {
+            padding: 1rem;
+            font-size: 0.7rem;
+        }
+        
+        .app-footer p {
+            margin: 0.35rem 0;
+        }
+    }
+    
+    /* Small Mobile (< 576px) */
+    @media (max-width: 575px) {
+        .main .block-container {
+            padding-left: 0.75rem;
+            padding-right: 0.75rem;
+            padding-top: 0.75rem;
+        }
+        
+        .app-header {
+            padding: 0.75rem;
+            border-radius: 8px;
+            margin-bottom: 1rem;
+        }
+        
+        .app-header h1 {
+            font-size: 1rem;
+        }
+        
+        .app-header p {
+            font-size: 0.7rem;
+        }
+        
+        .section-header {
+            font-size: 0.95rem;
+            padding: 0.4rem 0;
+        }
+        
+        .metric-card {
+            padding: 0.75rem;
+            margin-bottom: 0.4rem;
+        }
+        
+        .metric-card .value {
+            font-size: 1.25rem;
+        }
+        
+        .metric-card .label {
+            font-size: 0.7rem;
+        }
+        
+        [data-testid="stSidebar"] {
+            width: 260px !important;
+        }
+        
+        /* Make charts more compact */
+        .js-plotly-plot {
+            min-height: 250px !important;
+        }
+        
+        /* Adjust dataframe display */
+        [data-testid="stDataFrame"] {
+            font-size: 0.75rem;
+        }
+        
+        /* Button adjustments */
+        .stButton button {
+            padding: 0.5rem 1rem;
+            font-size: 0.8rem;
+        }
+    }
+    
+    /* Print styles */
+    @media print {
+        .main .block-container {
+            max-width: 100%;
+            padding: 1rem;
+        }
+        
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+        
+        .app-footer {
+            page-break-inside: avoid;
+        }
+    }
 </style>
 """
 
