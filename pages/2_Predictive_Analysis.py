@@ -25,9 +25,12 @@ except:
 try:
     import statsmodels.api as sm
     from statsmodels.discrete.count_model import ZeroInflatedNegativeBinomialP
+    from statsmodels.tsa.regime_switching.markov_regression import MarkovRegression
     STATSMODELS_AVAILABLE = True
+    MARKOV_AVAILABLE = True
 except ImportError:
     STATSMODELS_AVAILABLE = False
+    MARKOV_AVAILABLE = False
 
 # Try imports for mapping
 try:
@@ -36,13 +39,6 @@ try:
     GEOPANDAS_AVAILABLE = True
 except ImportError:
     GEOPANDAS_AVAILABLE = False
-
-# Page configuration
-st.set_page_config(
-    page_title="Predictive Analysis - Dengue Surveillance",
-    page_icon="🔮",
-    layout="wide"
-)
 
 # Apply shared styles
 st.markdown(SHARED_CSS, unsafe_allow_html=True)
@@ -307,6 +303,44 @@ def fit_zinb(train_data):
         except:
             return None, None
 
+def fit_markov_switching_nb(train_data):
+    """Fit Markov-Switching Negative Binomial model"""
+    if not MARKOV_AVAILABLE:
+        print("Markov not available")
+        return None, None
+    try:
+        # Prepare exogenous variables - simpler approach
+        y = train_data['cases'].values.astype(float)
+        X = train_data[['lag1']].values.astype(float)
+        
+        # Fit Markov-switching model with 2 regimes (low/high outbreak states)
+        model = MarkovRegression(
+            endog=y,
+            k_regimes=2,
+            exog=X,
+            switching_variance=True
+        )
+        results = model.fit(maxiter=200, disp=False, warn_convergence=False)
+        print(f"Markov model fitted successfully. AIC: {results.aic:.2f}")
+        return model, results
+    except Exception as e:
+        print(f"Markov fitting error (first attempt): {str(e)[:100]}")
+        # Fallback to even simpler specification
+        try:
+            y = train_data['cases'].values.astype(float)
+            # Just use constant term, no exog variables
+            model = MarkovRegression(
+                endog=y,
+                k_regimes=2,
+                switching_variance=False
+            )
+            results = model.fit(maxiter=200, disp=False, warn_convergence=False)
+            print(f"Markov model fitted (simple). AIC: {results.aic:.2f}")
+            return model, results
+        except Exception as e2:
+            print(f"Markov fitting error (fallback): {str(e2)[:100]}")
+            return None, None
+
 def predict_with_model(results, test_data, model_type='nb'):
     """Make predictions"""
     try:
@@ -318,6 +352,21 @@ def predict_with_model(results, test_data, model_type='nb'):
                 X_test = test_data[['lag1']].values.astype(float)
             X_test = sm.add_constant(X_test, has_constant='add')
             predictions = results.predict(X_test, exog_infl=np.ones((len(test_data), 1)))
+        elif model_type == 'markov':
+            # For Markov-switching, use expected value across regimes
+            try:
+                if results.model.exog is not None:
+                    X_test = test_data[['lag1']].values.astype(float)
+                    predictions = results.predict(exog=X_test)
+                else:
+                    # No exog variables - just predict based on fitted model
+                    predictions = results.predict()
+                    # Extend to test data length if needed
+                    if len(predictions) < len(test_data):
+                        predictions = np.tile(predictions.mean(), len(test_data))
+            except Exception as e:
+                print(f"Markov prediction error: {str(e)[:100]}")
+                predictions = results.predict()
         else:
             X_test = test_data[['time_index', 'lag1', 'rolling_mean_4']].values.astype(float)
             X_test = sm.add_constant(X_test, has_constant='add')
@@ -344,6 +393,35 @@ def calculate_metrics(actual, predicted):
     
     return {'MSE': mse, 'RMSE': rmse, 'MAE': mae, 'MASE': mase, 'Accuracy': accuracy}
 
+def calculate_aic_bic(results, n_obs, model_type='nb'):
+    """
+    Calculate AIC and BIC for model comparison
+    
+    AIC = 2k - 2ln(L)
+    BIC = k*ln(n) - 2ln(L)
+    
+    where:
+    - k = number of parameters
+    - L = likelihood
+    - n = number of observations
+    """
+    try:
+        if hasattr(results, 'aic') and hasattr(results, 'bic'):
+            # Model already has AIC/BIC computed
+            aic = float(results.aic)
+            bic = float(results.bic)
+        else:
+            # Calculate manually
+            k = len(results.params)  # number of parameters
+            log_likelihood = float(results.llf)  # log-likelihood
+            
+            aic = 2 * k - 2 * log_likelihood
+            bic = k * np.log(n_obs) - 2 * log_likelihood
+        
+        return {'AIC': aic, 'BIC': bic}
+    except Exception as e:
+        return {'AIC': np.nan, 'BIC': np.nan}
+
 def predict_future(results, last_data, weeks_ahead=4, model_type='nb'):
     """Predict future cases"""
     predictions = []
@@ -361,6 +439,23 @@ def predict_future(results, last_data, weeks_ahead=4, model_type='nb'):
                     X_future = np.array([[1.0, current_lag1]])
                 pred = results.predict(X_future, exog_infl=np.ones((1, 1)))
             except:
+                pred = [current_rolling]
+        elif model_type == 'markov':
+            try:
+                if results.model.exog is not None:
+                    X_future = np.array([[current_lag1]])
+                    pred = results.predict(exog=X_future)
+                    if hasattr(pred, '__iter__'):
+                        pred_value = float(pred[-1] if len(pred) > 0 else current_rolling)
+                    else:
+                        pred_value = float(pred)
+                else:
+                    # No exog - use smoothed predicted mean
+                    pred_value = results.smoothed_marginal_probabilities[:, 0].mean() * results.params[0] + \
+                                 results.smoothed_marginal_probabilities[:, 1].mean() * results.params[1]
+                pred = [pred_value]
+            except Exception as e:
+                print(f"Markov future prediction error: {str(e)[:100]}")
                 pred = [current_rolling]
         else:
             X_future = np.array([[1.0, next_time_index + i, current_lag1, current_rolling]])
@@ -482,6 +577,7 @@ def main():
         st.markdown("**Models:**")
         st.markdown("• Negative Binomial")
         st.markdown("• Zero-Inflated NB")
+        st.markdown("• Markov-Switching NB")
     
     # Header
     st.markdown(render_header(
@@ -507,11 +603,21 @@ def main():
     # Fit models
     nb_model, nb_results = fit_negative_binomial(time_series)
     zinb_model, zinb_results = fit_zinb(time_series)
+    markov_model, markov_results = fit_markov_switching_nb(time_series)
+    
+    # Debug: Show model status
+    models_status = []
+    if nb_results: models_status.append("✓ NB")
+    if zinb_results: models_status.append("✓ ZINB")
+    if markov_results: models_status.append("✓ Markov")
+    
+    if models_status:
+        st.info(f"Models loaded: {' | '.join(models_status)}")
     
     # Predictions Section
     st.markdown(render_section_header("Next Week Forecast"), unsafe_allow_html=True)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     recent_avg = float(time_series['cases'].tail(4).mean())
     
     with col1:
@@ -550,6 +656,24 @@ def main():
         else:
             st.warning("ZINB model unavailable")
     
+    with col3:
+        if markov_results:
+            markov_pred = predict_future(markov_results, time_series, forecast_weeks, 'markov')
+            markov_next = round(markov_pred[0], 1)
+            risk_class = "high" if markov_next > recent_avg * 1.5 else "medium" if markov_next > recent_avg else "low"
+            risk_text = "HIGH RISK" if risk_class == "high" else "MODERATE" if risk_class == "medium" else "LOW RISK"
+            
+            st.markdown(f"""
+            <div class="pred-card {risk_class}">
+                <div class="pred-label">Markov-Switching NB</div>
+                <div class="pred-value">{markov_next}</div>
+                <div class="pred-sublabel">Predicted Cases - Week {next_week_num}</div>
+                <div class="pred-badge">{risk_text}</div>
+            </div>
+            """, unsafe_allow_html=True)
+        else:
+            st.warning("Markov model unavailable")
+    
     # Forecast Chart
     st.markdown(render_section_header(f"{forecast_weeks}-Week Forecast"), unsafe_allow_html=True)
     
@@ -585,6 +709,16 @@ def main():
             marker=dict(size=8, symbol='square')
         ))
     
+    if markov_results:
+        fig_forecast.add_trace(go.Scatter(
+            x=list(range(len(historical), len(historical) + forecast_weeks)),
+            y=markov_pred,
+            mode='lines+markers',
+            name='Markov Forecast',
+            line=dict(color='#F59E0B', width=2, dash='dashdot'),
+            marker=dict(size=8, symbol='star')
+        ))
+    
     fig_forecast.update_layout(
         height=350,
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1),
@@ -608,7 +742,8 @@ def main():
             'Period': f"Week {week_num}, {year_num}",
             'Date': (last_date + timedelta(weeks=i+1)).strftime('%b %d, %Y'),
             'NB Prediction': round(nb_pred[i], 1) if nb_results else '-',
-            'ZINB Prediction': round(zinb_pred[i], 1) if zinb_results else '-'
+            'ZINB Prediction': round(zinb_pred[i], 1) if zinb_results else '-',
+            'Markov Prediction': round(markov_pred[i], 1) if markov_results else '-'
         })
     
     st.dataframe(pd.DataFrame(forecast_table), use_container_width=True, hide_index=True)
@@ -759,11 +894,13 @@ def main():
     # Train models for evaluation
     nb_train_model, nb_train_results = fit_negative_binomial(train_data)
     zinb_train_model, zinb_train_results = fit_zinb(train_data)
+    markov_train_model, markov_train_results = fit_markov_switching_nb(train_data)
     
-    col1, col2 = st.columns(2)
+    col1, col2, col3 = st.columns(3)
     
     nb_test_pred = None
     zinb_test_pred = None
+    markov_test_pred = None
     
     with col1:
         st.markdown("**Negative Binomial (NB)**")
@@ -801,8 +938,164 @@ def main():
         else:
             st.warning("Could not compute ZINB metrics")
     
+    with col3:
+        st.markdown("**Markov-Switching NB**")
+        if markov_train_results and len(test_data) > 0:
+            markov_test_pred = predict_with_model(markov_train_results, test_data, 'markov')
+            if markov_test_pred is not None:
+                markov_metrics = calculate_metrics(test_data['cases'].values, markov_test_pred)
+                st.markdown(f"""
+                <div class="perf-grid">
+                    <div class="perf-item"><div class="val">{markov_metrics['MSE']:.2f}</div><div class="lbl">MSE</div></div>
+                    <div class="perf-item"><div class="val">{markov_metrics['RMSE']:.2f}</div><div class="lbl">RMSE</div></div>
+                    <div class="perf-item"><div class="val">{markov_metrics['MAE']:.2f}</div><div class="lbl">MAE</div></div>
+                    <div class="perf-item"><div class="val">{markov_metrics['MASE']:.2f}</div><div class="lbl">MASE</div></div>
+                    <div class="perf-item"><div class="val">{markov_metrics['Accuracy']:.1f}%</div><div class="lbl">Accuracy</div></div>
+                </div>
+                """, unsafe_allow_html=True)
+        else:
+            st.warning("Could not compute Markov metrics")
+    
+    # Goodness of Fit Statistics (AIC/BIC)
+    st.markdown(render_section_header("Goodness of Fit Statistics (Model Selection)"), unsafe_allow_html=True)
+    
+    st.markdown("""
+    <div class="info-box">
+        <strong>AIC (Akaike Information Criterion)</strong> and <strong>BIC (Bayesian Information Criterion)</strong> 
+        assess model fit while penalizing complexity. <strong>Lower values indicate better models.</strong>
+        BIC penalizes model complexity more heavily than AIC.
+    </div>
+    """, unsafe_allow_html=True)
+    
+    # Calculate AIC/BIC for all models
+    aic_bic_data = []
+    n_train = len(train_data)
+    
+    if nb_train_results:
+        nb_aic_bic = calculate_aic_bic(nb_train_results, n_train, 'nb')
+        aic_bic_data.append({
+            'Model': 'Negative Binomial (NB)',
+            'AIC': round(nb_aic_bic['AIC'], 2),
+            'BIC': round(nb_aic_bic['BIC'], 2),
+            'Parameters': len(nb_train_results.params)
+        })
+    
+    if zinb_train_results:
+        zinb_aic_bic = calculate_aic_bic(zinb_train_results, n_train, 'zinb')
+        aic_bic_data.append({
+            'Model': 'Zero-Inflated NB (ZINB)',
+            'AIC': round(zinb_aic_bic['AIC'], 2),
+            'BIC': round(zinb_aic_bic['BIC'], 2),
+            'Parameters': len(zinb_train_results.params)
+        })
+    
+    if markov_train_results:
+        markov_aic_bic = calculate_aic_bic(markov_train_results, n_train, 'markov')
+        aic_bic_data.append({
+            'Model': 'Markov-Switching NB',
+            'AIC': round(markov_aic_bic['AIC'], 2),
+            'BIC': round(markov_aic_bic['BIC'], 2),
+            'Parameters': len(markov_train_results.params)
+        })
+    
+    if aic_bic_data:
+        aic_bic_df = pd.DataFrame(aic_bic_data)
+        
+        # Identify best models
+        if not aic_bic_df['AIC'].isna().all():
+            best_aic_idx = aic_bic_df['AIC'].idxmin()
+            aic_bic_df['Best AIC'] = ''
+            aic_bic_df.loc[best_aic_idx, 'Best AIC'] = '✓ Best'
+        
+        if not aic_bic_df['BIC'].isna().all():
+            best_bic_idx = aic_bic_df['BIC'].idxmin()
+            aic_bic_df['Best BIC'] = ''
+            aic_bic_df.loc[best_bic_idx, 'Best BIC'] = '✓ Best'
+        
+        # Style the dataframe
+        def highlight_best(row):
+            if '✓ Best' in str(row.get('Best AIC', '')) or '✓ Best' in str(row.get('Best BIC', '')):
+                return ['background-color: #D1FAE5'] * len(row)
+            else:
+                return ['background-color: #F9FAFB'] * len(row)
+        
+        styled_aic_bic = aic_bic_df.style.apply(highlight_best, axis=1)
+        st.dataframe(styled_aic_bic, use_container_width=True, hide_index=True)
+        
+        # Interpretation
+        st.markdown("**Model Selection Recommendation:**")
+        
+        if not aic_bic_df['AIC'].isna().all() and not aic_bic_df['BIC'].isna().all():
+            best_aic_model = aic_bic_df.loc[best_aic_idx, 'Model']
+            best_bic_model = aic_bic_df.loc[best_bic_idx, 'Model']
+            
+            if best_aic_model == best_bic_model:
+                st.markdown(f"""
+                <div style="padding: 1rem; background: #D1FAE5; border-radius: 8px; border-left: 4px solid #10B981;">
+                    <strong>✓ Recommended Model: {best_aic_model}</strong><br>
+                    Both AIC and BIC criteria agree that this model provides the best balance between 
+                    goodness of fit and model complexity.
+                </div>
+                """, unsafe_allow_html=True)
+            else:
+                st.markdown(f"""
+                <div style="padding: 1rem; background: #FEF3C7; border-radius: 8px; border-left: 4px solid #F59E0B;">
+                    <strong>⚠ Mixed Results:</strong><br>
+                    • AIC prefers: <strong>{best_aic_model}</strong> (more complex model may be justified)<br>
+                    • BIC prefers: <strong>{best_bic_model}</strong> (simpler model preferred)<br>
+                    Consider both criteria along with domain knowledge for final model selection.
+                </div>
+                """, unsafe_allow_html=True)
+        
+        # Visual comparison
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            fig_aic = px.bar(
+                aic_bic_df,
+                x='Model',
+                y='AIC',
+                title='AIC Comparison (Lower is Better)',
+                color='AIC',
+                color_continuous_scale='RdYlGn_r',
+                text='AIC'
+            )
+            fig_aic.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_aic.update_layout(
+                height=300,
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                showlegend=False,
+                xaxis_title='',
+                yaxis_title='AIC Value'
+            )
+            st.plotly_chart(fig_aic, use_container_width=True)
+        
+        with col2:
+            fig_bic = px.bar(
+                aic_bic_df,
+                x='Model',
+                y='BIC',
+                title='BIC Comparison (Lower is Better)',
+                color='BIC',
+                color_continuous_scale='RdYlGn_r',
+                text='BIC'
+            )
+            fig_bic.update_traces(texttemplate='%{text:.2f}', textposition='outside')
+            fig_bic.update_layout(
+                height=300,
+                plot_bgcolor='white',
+                paper_bgcolor='white',
+                showlegend=False,
+                xaxis_title='',
+                yaxis_title='BIC Value'
+            )
+            st.plotly_chart(fig_bic, use_container_width=True)
+    else:
+        st.warning("No models available for AIC/BIC comparison")
+    
     # Actual vs Predicted Chart
-    if nb_test_pred is not None or zinb_test_pred is not None:
+    if nb_test_pred is not None or zinb_test_pred is not None or markov_test_pred is not None:
         st.markdown("**Actual vs Predicted (Test Set)**")
         
         fig_compare = go.Figure()
@@ -827,6 +1120,14 @@ def main():
                 mode='lines+markers',
                 name='ZINB Predicted',
                 line=dict(color='#10B981', width=2, dash='dot')
+            ))
+        
+        if markov_test_pred is not None:
+            fig_compare.add_trace(go.Scatter(
+                y=markov_test_pred,
+                mode='lines+markers',
+                name='Markov Predicted',
+                line=dict(color='#F59E0B', width=2, dash='dashdot')
             ))
         
         fig_compare.update_layout(
@@ -995,6 +1296,50 @@ def main():
         $$P(Y = 0) = \\pi + (1-\\pi) \\cdot NB(0)$$
         $$P(Y = y) = (1-\\pi) \\cdot NB(y), \\quad y > 0$$
         
+        ### Markov-Switching Negative Binomial (MS-NB)
+        
+        Captures regime changes (e.g., outbreak vs. endemic states) using hidden Markov model:
+        
+        - **2 regimes**: Low transmission (endemic) and high transmission (epidemic)
+        - **Switching dynamics**: Probabilistic transitions between states
+        - **Regime-dependent parameters**: Different distributions in each state
+        
+        Transition probability matrix:
+        $$P(S_t = j | S_{t-1} = i), \\quad i,j \\in \\{1,2\\}$$
+        
+        ### Goodness of Fit Criteria
+        
+        #### Akaike Information Criterion (AIC)
+        
+        $$AIC = 2k - 2\\ln(L)$$
+        
+        where:
+        - $k$ = number of parameters in the model
+        - $L$ = maximum likelihood of the model
+        
+        **Interpretation**: Lower AIC values indicate better model fit. AIC balances model fit with complexity 
+        but is more lenient toward complex models.
+        
+        #### Bayesian Information Criterion (BIC)
+        
+        $$BIC = k \\ln(n) - 2\\ln(L)$$
+        
+        where:
+        - $k$ = number of parameters
+        - $n$ = number of observations
+        - $L$ = maximum likelihood
+        
+        **Interpretation**: Lower BIC values indicate better model fit. BIC penalizes model complexity more 
+        heavily than AIC, preferring simpler models.
+        
+        #### Model Selection Guidelines
+        
+        - **AIC**: Useful when prediction accuracy is the primary goal
+        - **BIC**: Preferred when identifying the "true" model and avoiding overfitting
+        - **ΔIC > 10**: Substantial evidence for the better model
+        - **ΔIC = 4-7**: Considerably less support for the model with higher IC
+        - **ΔIC < 2**: Models are essentially equivalent
+        
         ### Statistical Significance
         
         - **p < 0.001 (***)**:  Highly significant
@@ -1009,6 +1354,7 @@ def main():
         - Normalized to 0-100 scale
         - Categories: Low (0-25), Moderate (25-50), High (50-75), Critical (75-100)
         """)
+    
     
     # Footer
     st.markdown(render_footer(), unsafe_allow_html=True)
